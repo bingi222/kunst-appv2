@@ -1,13 +1,63 @@
 import React, { useEffect, useRef, useState } from "react";
 import SafeImage from "../common/SafeImage";
 
+const TITLE_MAX = 100;
+const DESC_MAX = 500;
+const SIMULATED_UPLOAD_DELAY_MS = 800;
+const SUCCESS_MESSAGE_DISPLAY_MS = 1200;
+
+function UploadIcon() {
+  return (
+    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <circle cx="24" cy="24" r="24" fill="rgba(255,255,255,0.06)" />
+      <path
+        d="M24 14v14M18 20l6-6 6 6"
+        stroke="rgba(255,255,255,0.55)"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14 32h20"
+        stroke="rgba(255,255,255,0.3)"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function Spinner() {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        width: 16,
+        height: 16,
+        border: "2px solid rgba(18,18,18,0.3)",
+        borderTopColor: "#121212",
+        borderRadius: "50%",
+        animation: "upload-spin 0.7s linear infinite",
+        verticalAlign: "middle",
+        marginRight: 8,
+      }}
+      aria-hidden="true"
+    />
+  );
+}
+
 export default function UploadPage({ onBack, onPost, currentUser, draftImageUrl, onDraftImageUrlChange }) {
   const [imageUrl, setImageUrl] = useState(() => String(draftImageUrl || ""));
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [errorText, setErrorText] = useState("");
   const [isDragActive, setIsDragActive] = useState(false);
+  const [isDropZoneHovered, setIsDropZoneHovered] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
   const fileInputRef = useRef(null);
 
-  const canPost = imageUrl.trim().length > 0;
+  const canPost = imageUrl.trim().length > 0 && !isUploading;
 
   useEffect(() => {
     setImageUrl(String(draftImageUrl || ""));
@@ -26,6 +76,16 @@ export default function UploadPage({ onBack, onPost, currentUser, draftImageUrl,
     onDraftImageUrlChange(nextValue);
   };
 
+  const clearImage = (event) => {
+    event.stopPropagation();
+    if (String(imageUrl || "").startsWith("blob:")) {
+      URL.revokeObjectURL(imageUrl);
+    }
+    setDraft("");
+    setErrorText("");
+    setSuccessMessage("");
+  };
+
   const assignFileAsPreview = (file) => {
     if (!file) {
       return;
@@ -36,6 +96,7 @@ export default function UploadPage({ onBack, onPost, currentUser, draftImageUrl,
     }
     const objectUrl = URL.createObjectURL(file);
     setErrorText("");
+    setSuccessMessage("");
     setDraft(objectUrl);
   };
 
@@ -59,16 +120,26 @@ export default function UploadPage({ onBack, onPost, currentUser, draftImageUrl,
     }
 
     setErrorText("");
-    onPost({
-      id: Date.now(),
-      ownerId: currentUser.id,
-      user: currentUser.displayName,
-      bio: currentUser.bio,
-      avatar: currentUser.avatar,
-      images: [normalized],
-    });
-    setDraft("");
-    onBack();
+    setIsUploading(true);
+
+    setTimeout(() => {
+      onPost({
+        id: Date.now(),
+        ownerId: currentUser.id,
+        user: currentUser.displayName,
+        bio: currentUser.bio,
+        avatar: currentUser.avatar,
+        images: [normalized],
+        title: title.trim() || undefined,
+        description: description.trim() || undefined,
+      });
+      setIsUploading(false);
+      setSuccessMessage("Erfolgreich gepostet! ✓");
+      setDraft("");
+      setTitle("");
+      setDescription("");
+      setTimeout(() => onBack(), SUCCESS_MESSAGE_DISPLAY_MS);
+    }, SIMULATED_UPLOAD_DELAY_MS);
   };
 
   const onDragOver = (event) => {
@@ -88,40 +159,65 @@ export default function UploadPage({ onBack, onPost, currentUser, draftImageUrl,
     assignFileAsPreview(file);
   };
 
-  return (
-    <section style={{ maxWidth: 760, margin: "0 auto", padding: "20px 16px" }}>
-      <button type="button" onClick={onBack} style={{ border: "none", background: "transparent", color: "#aaaaaa", cursor: "pointer" }}>
-        ← Zurueck
-      </button>
-      <h2 style={{ marginTop: "18px", marginBottom: "8px", fontSize: "30px" }}>Upload</h2>
-      <p style={{ marginTop: 0, color: "#aaaaaa" }}>Fuege ein Werk per URL hinzu oder ziehe ein Bild in die Upload-Flache.</p>
+  const dropZoneActive = isDragActive || isDropZoneHovered;
 
-      <div
-        role="button"
-        tabIndex={0}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        onClick={() => fileInputRef.current?.click()}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            fileInputRef.current?.click();
-          }
-        }}
-        style={{
-          marginTop: "14px",
-          border: `1px dashed ${isDragActive ? "#4a4a4a" : "#3a3a3a"}`,
-          borderRadius: "16px",
-          padding: "26px 18px",
-          background: isDragActive ? "#222222" : "#1a1a1a",
-          textAlign: "center",
-          color: "rgba(255, 255, 255, 0.9)",
-          cursor: "pointer",
-        }}
+  return (
+    <section className="upload-page-shell">
+      <button
+        type="button"
+        onClick={onBack}
+        className="upload-back-btn"
       >
-        Bild hierher ziehen oder klicken zum Auswaehlen
-      </div>
+        ← Zurück
+      </button>
+
+      <h2 className="upload-heading">Kunstwerk hochladen</h2>
+      <p className="upload-subheading">Teile dein Werk mit der Community</p>
+
+      {/* Drop Zone or Preview */}
+      {imageUrl ? (
+        <div className="upload-preview-wrap fade-in">
+          <SafeImage
+            src={imageUrl}
+            alt="Vorschau"
+            className="upload-preview-img"
+          />
+          <button
+            type="button"
+            className="upload-preview-remove"
+            onClick={clearImage}
+            aria-label="Bild entfernen"
+          >
+            ✕
+          </button>
+        </div>
+      ) : (
+        <div
+          role="button"
+          tabIndex={0}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          onClick={() => fileInputRef.current?.click()}
+          onMouseEnter={() => setIsDropZoneHovered(true)}
+          onMouseLeave={() => setIsDropZoneHovered(false)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              fileInputRef.current?.click();
+            }
+          }}
+          className={`upload-drop-zone${dropZoneActive ? " upload-drop-zone--active" : ""}`}
+        >
+          <UploadIcon />
+          <p className="upload-drop-title">
+            {isDragActive ? "Loslassen zum Hochladen" : "Ziehe dein Kunstwerk hierher"}
+          </p>
+          <p className="upload-drop-sub">oder klicke zum Auswählen</p>
+          <span className="upload-drop-hint">PNG, JPG, GIF, WEBP</span>
+        </div>
+      )}
+
       <input
         ref={fileInputRef}
         type="file"
@@ -133,70 +229,69 @@ export default function UploadPage({ onBack, onPost, currentUser, draftImageUrl,
         style={{ display: "none" }}
       />
 
-      <input
-        type="url"
-        placeholder="Bild-URL einfuegen"
-        value={imageUrl}
-        onChange={(event) => {
-          const nextValue = event.target.value;
-          setDraft(nextValue);
-          if (errorText) {
-            setErrorText("");
-          }
-        }}
-        style={{
-          width: "100%",
-          boxSizing: "border-box",
-          marginTop: "14px",
-          padding: "12px 14px",
-          borderRadius: "12px",
-          border: "1px solid #2a2a2a",
-          background: "#1a1a1a",
-          color: "rgba(255, 255, 255, 0.9)",
-        }}
-      />
-      {errorText && <p style={{ marginTop: "10px", color: "#aaaaaa", fontSize: "13px" }}>{errorText}</p>}
-
-      {imageUrl && (
-        <div style={{ marginTop: "14px", border: "1px solid #2a2a2a", borderRadius: "16px", overflow: "hidden" }}>
-          <SafeImage src={imageUrl} alt="Upload Vorschau" style={{ width: "100%", height: 320, objectFit: "cover", background: "#1a1a1a" }} />
-        </div>
+      {errorText && (
+        <p className="upload-error">{errorText}</p>
       )}
 
-      <div style={{ marginTop: "14px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+      {successMessage && (
+        <p className="upload-success fade-in">{successMessage}</p>
+      )}
+
+      {/* Metadata fields */}
+      <div className="upload-fields">
+        <label className="upload-field-label">
+          <span className="upload-field-name">
+            Titel
+            <span className="upload-field-optional">optional</span>
+          </span>
+          <input
+            type="text"
+            placeholder="Gib deinem Werk einen Titel…"
+            value={title}
+            maxLength={TITLE_MAX}
+            onChange={(e) => setTitle(e.target.value)}
+            className="upload-input"
+          />
+          <span className="upload-char-count">{title.length}/{TITLE_MAX}</span>
+        </label>
+
+        <label className="upload-field-label">
+          <span className="upload-field-name">
+            Beschreibung
+            <span className="upload-field-optional">optional</span>
+          </span>
+          <textarea
+            placeholder="Beschreibe dein Kunstwerk…"
+            value={description}
+            maxLength={DESC_MAX}
+            rows={3}
+            onChange={(e) => setDescription(e.target.value)}
+            className="upload-textarea"
+          />
+          <span className="upload-char-count">{description.length}/{DESC_MAX}</span>
+        </label>
+      </div>
+
+      {/* Actions */}
+      <div className="upload-actions">
         <button
           type="button"
-          onClick={() => setDraft("https://picsum.photos/seed/upload-demo/900/600")}
-          style={{
-            height: "40px",
-            borderRadius: "12px",
-            border: "1px solid #2a2a2a",
-            background: "#1a1a1a",
-            color: "rgba(255, 255, 255, 0.9)",
-            padding: "0 14px",
-            fontWeight: 600,
-            cursor: "pointer",
+          onClick={() => {
+            setDraft("https://picsum.photos/seed/upload-demo/900/600");
+            setSuccessMessage("");
           }}
+          className="upload-btn-secondary"
         >
-          Demo-Bild einsetzen
+          Demo-Bild
         </button>
         <button
           type="button"
           onClick={submitPost}
           disabled={!canPost}
-          style={{
-            height: "40px",
-            borderRadius: "12px",
-            border: "1px solid transparent",
-            background: "#d7d7d7",
-            color: "#121212",
-            padding: "0 14px",
-            fontWeight: 600,
-            cursor: canPost ? "pointer" : "not-allowed",
-            opacity: canPost ? 1 : 0.6,
-          }}
+          className={`upload-btn-primary${!canPost ? " upload-btn-primary--disabled" : ""}`}
         >
-          Posten
+          {isUploading && <Spinner />}
+          {isUploading ? "Wird hochgeladen…" : "Posten"}
         </button>
       </div>
     </section>
